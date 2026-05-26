@@ -1,3 +1,5 @@
+![Leenout banner](./Screenshot%202026-05-26%20132536.png)
+
 # 🏠 Leenout
 
 > **Leenout** is a discoverable, permission-gated collaborative coding platform for strangers. Users browse live projects, request access, and contribute to real codebases in real-time — without needing to know the owner beforehand.
