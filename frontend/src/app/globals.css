@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+@theme {
+  --font-syne: var(--font-syne), sans-serif;
+  --font-mono: var(--font-dm-mono), monospace;
+
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-surface2: var(--color-surface2);
+  --color-border: var(--color-border);
+  --color-accent: var(--color-accent);
+  --color-accent2: var(--color-accent2);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-dim: var(--color-text-dim);
+  --color-warning-bg: var(--color-warning-bg);
+  --color-warning-border: var(--color-warning-border);
+  --color-note-bg: var(--color-note-bg);
+  --color-note-border: var(--color-note-border);
+}
+
+:root {
+  /* Default Dark Theme - Tailwind v4 color tokens */
+  --color-bg: #1a1a1a;
+  --color-surface: #222222;
+  --color-surface2: #2a2a2a;
+  --color-border: #333333;
+  --color-accent: #cbd637;
+  --color-accent2: #ff6b35;
+  --color-text-primary: #f0f0f0;
+  --color-text-muted: #888888;
+  --color-text-dim: #333333;
+  --color-warning-bg: rgba(255, 107, 53, 0.04);
+  --color-warning-border: rgba(255, 107, 53, 0.2);
+  --color-note-bg: rgba(203, 214, 55, 0.04);
+  --color-note-border: rgba(203, 214, 55, 0.2);
+
+  --background: var(--color-bg);
+  --foreground: var(--color-text-primary);
+
+  /* Glassmorphism Variables (Dark Mode) */
+  --color-glass-bg: rgba(34, 34, 34, 0.7);
+  --color-glass-border: rgba(51, 51, 51, 0.6);
+  --color-glass-border-hover: rgba(203, 214, 55, 0.4);
+  --color-glass-bg-hover: rgba(42, 42, 42, 0.8);
+  --color-glass-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-dm-mono), monospace;
+  position: relative;
+  min-height: 100vh;
+}
+
+/* Grain Overlay (WOW Effect) */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.15;
+}
+
+/* Glassmorphism custom classes */
+.glass-panel {
+  background: var(--color-glass-bg);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--color-glass-border);
+}
+
+.glass-panel-hover {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-panel-hover:hover {
+  border-color: var(--color-glass-border-hover);
+  background: var(--color-glass-bg-hover);
+  box-shadow: var(--color-glass-shadow);
+}
+
+/* Code theme visual accents */
+.code-kw {
+  color: #cbd637;
+}
+
+.code-str {
+  color: #ff6b35;
+}
+
+.code-cm {
+  color: #666666;
+  font-style: italic;
+}
+
+/* Fix native dropdown option contrast in dark mode */
+select option {
+  background-color: var(--color-surface) !important;
+  color: var(--color-text-primary) !important;
+}
+select {
+  color-scheme: dark; /* Signals to browsers to use a dark native select dropdown */
+}

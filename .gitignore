@@ -1,0 +1,57 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+web_modules/
+
+# Next.js, React, and general compilation outputs
+.next/
+out/
+dist/
+build/
+bin/
+obj/
+*.tsbuildinfo
+
+# Debug, system, and temporary logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.eslintcache
+.stylelintcache
+*.log
+
+# Environmental variables, secrets, and local keys
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.sample
+*.pem
+*.key
+*.cert
+
+# Operating System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE, Text Editor, and workspace files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.project
+.classpath
+.settings/
+
+# Product and Technical Requirements specifications
+PRD & TRD/
