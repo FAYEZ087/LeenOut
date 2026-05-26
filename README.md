@@ -1,4 +1,4 @@
-![Leenout banner](./Screenshot%202026-05-26%20132536.png)
+![Leenout banner](./frontend/Logo.png)
 
 # 🏠 Leenout
 
