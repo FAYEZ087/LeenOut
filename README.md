@@ -8,34 +8,32 @@
 
 ## 🚀 Key Features
 
-* **🚪 Gated Workspace Access**: Strangers browse live projects, review open roles or current blockers, and pitch access requests. Project owners retain absolute sovereign approval control.
-* **⏱️ Scheduled Edit Windows & Live Countdown HUD**: Contributor editing is coordinated by strict, scheduled timeslots. A floating circular SVG countdown HUD tracks active session locks with micro-animated pulse/ping alerts under 5 minutes.
-* **💻 Monaco Code Editor & Live Preview**: Real-time in-browser code editor powered by Monaco Editor (VSCode engine) with integrated file directory trees and a sandboxed HTML/CSS/JS preview container.
-* **🛡️ Hardened Security Isolation Sandbox**: The preview compiler compiles code in a restricted browser frame using `sandbox="allow-scripts"` strictly (**removing the `allow-same-origin` vulnerability**), isolating visitor code execution from root document resources, session cookies, and database auth claims.
-* **💬 Multiplayer Room Chat**: Real-time collaborative chat rooms mapping authenticated developer identities, custom visual badges (`Owner` / `Contributor`), and sanitized payloads.
-* **📝 Edit History Reverts**: Active owner console logging previous session code diff snapshots, granting owners the ability to perform full cascade file reverts.
-* **📂 Granular File-Level Permissions**: Owners restrict active contributors to specific files or modules (e.g. `allowed_files: ["src/index.css"]`), locked securely via PostgreSQL Row Level Security (RLS).
-* **🔨 Kick & 7-Day Cooldowns**: Owners can evict contributors instantly, locking them out of future pitches for 7 days via database-enforced triggers.
-* **📋 Dedicated Support & Moderation Route**: Embedded `/support` page rendering the platform's official Google Form under a premium, dark-mode container for rapid ticketing, harassment reporting, and abuse moderation.
-* **🟩 Visual Cascade Account Purge**: Simulated green/orange monochrome terminal purge logging cascading database deletion events in real-time during profile removals.
+* **🏪 Discovery Marketplace**: Browse public workspaces, filter by stack/roles, watch projects, and submit collaboration pitches.
+* **✅ Owner Control Center**: Approve/deny requests, manage contributors, set file-level permissions, schedule timed edit windows, kick with cooldowns, and revert file snapshots.
+* **💻 Live Studio Workspace**: Monaco editor + file tree with Ctrl/Cmd+S commits and real-time HTML/CSS/JS preview compilation.
+* **🔒 Timed Edit Windows + Countdown HUD**: Contributor edits are gated by active windows; a floating countdown overlay shows remaining time and allowed scope.
+* **💬 Real-time Collaboration**: Socket.io chat with room history plus live file update broadcasts.
+* **🧪 Sandboxed Preview**: Rendered in an iframe using `sandbox="allow-scripts"` for strict isolation.
+* **🔁 Forking & Watchlists**: Fork public projects and track watched workspaces.
+* **🧾 Profile + Support**: Developer card management, simulated cascade delete flow, and a dedicated `/support` form.
 
 ---
 
 ## 🛠️ Technical Stack
 
 ### Frontend
-* **Core Framework**: Next.js 16 (App Router, Turbopack Compiler)
-* **Styling**: Vanilla CSS with unified HSL elegant Dark-Gray styling (`#0a0a0a` & `#111111`)
-* **State Management**: Zustand
-* **Editor Base**: Monaco Editor Wrapper
+* **Core Framework**: Next.js 16 (App Router) + React 19
+* **Styling**: Tailwind CSS v4 with design tokens in `globals.css`
+* **Editor Base**: Monaco Editor (`@monaco-editor/react`)
 * **WebSockets**: Socket.io-client
+* **Auth/DB Client**: Supabase JS
 
 ### Backend & Database
-* **Server**: Node.js + Express
-* **Real-time Protocol**: Socket.io Rooms
-* **Database**: PostgreSQL (Supabase DB) with Row Level Security (RLS)
-* **Authentication**: Supabase Auth (GitHub OAuth & JWT token verifications)
-* **Email Routing**: Resend API
+* **Server**: Node.js + Express (TypeScript)
+* **Real-time Protocol**: Socket.io
+* **Database**: Supabase Postgres with Row Level Security (RLS)
+* **Authentication**: Supabase Auth (JWT sessions)
+* **API Surface**: `/health`, `/api/notify-request`, `/api/delete-account`, `/api/projects/:id/fork`
 
 ---
 
@@ -45,19 +43,19 @@
 leenout/
 ├── .gitignore               # Global root-level git safeguards
 ├── README.md                # General developer documentation
-├── backend/                 # Node.js + Express API & Socket.io server container
-│   ├── src/                 # Server logic, rate-limiters, & whitelists
+├── backend/                 # Express + Socket.io API server (TypeScript)
+│   ├── src/                 # HTTP endpoints, socket handlers, rate limits
 │   ├── package.json
 │   └── tsconfig.json
-├── frontend/                # Next.js App Router Client Portal
+├── frontend/                # Next.js App Router UI
 │   ├── src/
-│   │   ├── app/             # Application routes (Discovery, Workspace Studio, Support)
-│   │   ├── components/      # UI widgets (Glassmorphic Project Cards, Auth Navs)
-│   │   └── utils/           # Supabase client helpers & states
+│   │   ├── app/             # Routes (marketplace, studio, dashboard, support)
+│   │   ├── components/      # UI widgets
+│   │   └── utils/           # Supabase client helpers
 │   └── package.json
-├── supabase/                # PostgreSQL Database Infrastructure
-│   └── migrations/          # RLS policies, schemas, and cooldown triggers
-└── PRD & TRD/               # Product Requirements Documents (Git Ignored)
+├── supabase/                # Database schema + RLS policies
+│   └── migrations/
+└── PRD & TRD/               # Product Requirements Documents (Git ignored)
 ```
 
 ---
@@ -69,6 +67,7 @@ leenout/
 #### `/backend/.env`
 ```env
 PORT=4000
+FRONTEND_URL=http://localhost:3000
 SUPABASE_URL=https://your-supabase-project.supabase.co
 SUPABASE_ANON_KEY=your-supabase-public-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-private-service-role-key
@@ -80,6 +79,8 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-supabase-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-public-anon-key
 NEXT_PUBLIC_BACKEND_URL=http://localhost:4000
 ```
+
+> **Note:** Placeholder keys let the app boot locally, but data/auth features are limited. Use real Supabase credentials for full functionality and RLS enforcement.
 
 ### Installation Steps
 
@@ -123,8 +124,8 @@ NEXT_PUBLIC_BACKEND_URL=http://localhost:4000
 
 ## 🔒 Security & Moderation Guidelines
 
-* **Zero-Trust Token Gating**: Backend requests and WebSocket handshakes enforce cryptographic validation of user JWT claims directly via Supabase Auth APIs.
-* **Fail-Closed API Keys**: Administrative backend routines fall back gracefully to simulation blocks in local settings if private environment keys are absent.
-* **Rate Limiting**: Sliding-window IP and account-based rate limiters protect secure paths (`/api/delete-account`, `/api/projects/:id/fork`, and access requests) from dictionary attacks or denial-of-service abuse.
-* **Strict Parameters Whitelisting**: Body schemas enforce pre-compiled UUID types, string sanitization, and block parameter pollution.
-* **Abuse Reporting**: Any copyright infractions, code exploits, or chat harassment can be reported directly via the `/support` panel for rapid moderation action.
+* **RLS-first enforcement**: Supabase policies lock down projects, files, edit windows, and allowed file scopes.
+* **JWT-backed access checks**: API endpoints and Socket.io handshakes validate Supabase sessions when configured.
+* **Rate Limiting**: Sliding-window limits protect sensitive routes such as account deletion and project forking.
+* **Strict Payload Validation**: Whitelisted request schemas sanitize and reject unexpected fields.
+* **Abuse Reporting**: The `/support` form provides a direct moderation channel.

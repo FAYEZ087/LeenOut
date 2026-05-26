@@ -1,4 +1,4 @@
--- Leenout Database Schema - Phase 3 (Edit Windows, Sessions & Moderator Controls)
+-- Leenout Database Schema - Edit Windows, Sessions & Moderator Controls
 
 -- 1. Edit Windows Table
 create table if not exists public.edit_windows (

@@ -1,4 +1,4 @@
--- Leenout Database Schema - Phase 5 (Discoverability & Platform Forking)
+-- Leenout Database Schema - Discoverability & Platform Forking
 
 -- 1. Alter projects to track fork origins
 alter table public.projects 

@@ -1,4 +1,4 @@
--- Leenout Database Schema - Phase 1
+-- Leenout Database Schema
 
 -- 1. Enable UUID Extension
 create extension if not exists "uuid-ossp";
