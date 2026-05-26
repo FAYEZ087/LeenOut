@@ -1,4 +1,4 @@
-![Leenout banner](./frontend/Logo.png)
+<img src="./frontend/Logo.png" alt="Leenout banner" width="100%" />
 
 # 🏠 Leenout
 
