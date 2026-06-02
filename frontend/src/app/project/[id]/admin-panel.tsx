@@ -3,9 +3,11 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/utils/supabaseClient";
 import { 
-  Check, X, UserMinus, Calendar, History, ShieldAlert, Clock, FileText, UserCheck, Trash2, ShieldCheck, Loader2
+  Check, X, UserMinus, Calendar, History, ShieldAlert, Clock, FileText, UserCheck, Trash2, ShieldCheck, Loader2,
+  Eye, Settings, GitBranch, Github, Bell
 } from "lucide-react";
 import { ProjectFile } from "./file-tree";
+import MonacoDiff from "./monaco-diff";
 
 interface Contributor {
   id: string;
@@ -63,7 +65,7 @@ interface AdminPanelProps {
   onRevertFile: (filepath: string, content: string) => Promise<void>;
 }
 
-type TabType = "requests" | "contributors" | "schedule" | "history";
+type TabType = "requests" | "contributors" | "schedule" | "history" | "settings";
 
 export default function AdminPanel({ projectId, currentUser, files, onRevertFile }: AdminPanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>("requests");
@@ -83,6 +85,107 @@ export default function AdminPanel({ projectId, currentUser, files, onRevertFile
   const [scheduleStart, setScheduleStart] = useState("");
   const [scheduleEnd, setScheduleEnd] = useState("");
   const [submittingSchedule, setSubmittingSchedule] = useState(false);
+
+  // Premium Features States
+  const [diffSession, setDiffSession] = useState<EditSession | null>(null);
+  
+  // Webhooks
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookType, setWebhookType] = useState<"discord" | "slack">("discord");
+  
+  // GitHub Sync
+  const [githubToken, setGithubToken] = useState("");
+  const [githubRepo, setGithubRepo] = useState("");
+  const [githubBranch, setGithubBranch] = useState("main");
+  const [githubCommitMessage, setGithubCommitMessage] = useState("Sync project workspace");
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Load configured settings from localStorage
+  useEffect(() => {
+    if (projectId) {
+      const savedWebhook = localStorage.getItem(`webhookUrl:${projectId}`);
+      const savedType = localStorage.getItem(`webhookType:${projectId}`);
+      const savedRepo = localStorage.getItem(`githubRepo:${projectId}`);
+      
+      if (savedWebhook) setWebhookUrl(savedWebhook);
+      if (savedType) setWebhookType(savedType as "discord" | "slack");
+      if (savedRepo) setGithubRepo(savedRepo);
+    }
+  }, [projectId]);
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/projects/${projectId}/webhook-config`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          webhookUrl,
+          webhookType
+        })
+      });
+
+      if (!res.ok) {
+        const result = await res.json();
+        throw new Error(result.error || `HTTP ${res.status}`);
+      }
+
+      localStorage.setItem(`webhookUrl:${projectId}`, webhookUrl);
+      localStorage.setItem(`webhookType:${projectId}`, webhookType);
+      localStorage.setItem(`githubRepo:${projectId}`, githubRepo);
+      showToast("Settings saved successfully and synced with server!");
+    } catch (err: any) {
+      alert(`Failed to save settings on server: ${err.message}`);
+    }
+  };
+
+  const handleGitHubSync = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!githubToken || !githubRepo || !githubCommitMessage) {
+      alert("Missing required synchronization inputs.");
+      return;
+    }
+    
+    setIsSyncing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/projects/${projectId}/github-sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          githubToken,
+          repoName: githubRepo,
+          commitMessage: githubCommitMessage,
+          branch: githubBranch
+        })
+      });
+
+      const result = await res.json();
+      if (!res.ok) {
+        throw new Error(result.error || `HTTP ${res.status}`);
+      }
+
+      showToast(`GitHub Sync Complete! Synced ${result.syncedFiles.length} files.`);
+      // Clear token and persist repo
+      localStorage.setItem(`githubRepo:${projectId}`, githubRepo);
+      setGithubCommitMessage("Sync project workspace");
+    } catch (err: any) {
+      alert(`GitHub sync failed: ${err.message}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Fetch all admin data
   const fetchData = async () => {
@@ -455,6 +558,12 @@ export default function AdminPanel({ projectId, currentUser, files, onRevertFile
         >
           Undo Logs
         </button>
+        <button 
+          onClick={() => setActiveTab("settings")}
+          className={`flex-1 py-2 border-b-2 transition-all cursor-pointer ${activeTab === "settings" ? "border-accent text-accent bg-accent/5" : "border-transparent text-text-muted hover:text-text-primary"}`}
+        >
+          Settings
+        </button>
       </div>
 
       {/* Tab Panels body */}
@@ -766,13 +875,23 @@ export default function AdminPanel({ projectId, currentUser, files, onRevertFile
                           </div>
                         </div>
 
-                        <button
-                          onClick={() => handleRevertClick(sess)}
-                          className="text-[9px] font-extrabold uppercase bg-accent text-bg hover:bg-accent/85 px-2 py-1 flex items-center gap-1 tracking-wider transition-all shrink-0 cursor-pointer"
-                          title="Revert live file to this content snapshot"
-                        >
-                          <History className="h-3.5 w-3.5" /> Revert
-                        </button>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            onClick={() => setDiffSession(sess)}
+                            className="text-[9px] font-extrabold uppercase bg-surface border border-border text-text-muted hover:text-text-primary px-2 py-1 flex items-center gap-1.5 tracking-wider transition-all cursor-pointer"
+                            title="Compare visual split-diff before reverting"
+                          >
+                            <Eye className="h-3.5 w-3.5" /> Diff
+                          </button>
+                          
+                          <button
+                            onClick={() => handleRevertClick(sess)}
+                            className="text-[9px] font-extrabold uppercase bg-accent text-bg hover:bg-accent/85 px-2 py-1 flex items-center gap-1 tracking-wider transition-all shrink-0 cursor-pointer"
+                            title="Revert live file to this content snapshot"
+                          >
+                            <History className="h-3.5 w-3.5" /> Revert
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -780,9 +899,161 @@ export default function AdminPanel({ projectId, currentUser, files, onRevertFile
               </div>
             )}
 
+            {/* 5. SETTINGS PANEL (Webhooks & GitHub Sync) */}
+            {activeTab === "settings" && (
+              <div className="space-y-6 animate-fade-in pr-1 pb-4">
+                
+                {/* A. Slack / Discord Webhooks Form */}
+                <form onSubmit={handleSaveSettings} className="bg-surface border border-border p-4 space-y-4">
+                  <span className="block text-[9px] uppercase tracking-wider text-text-muted font-bold border-b border-border/40 pb-2 flex items-center gap-1.5 select-none">
+                    <Bell className="h-3.5 w-3.5 text-accent" />
+                    <span>Real-Time Webhook Alerts</span>
+                  </span>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[8px] uppercase tracking-wider text-text-muted font-semibold mb-1">
+                        Channel Type
+                      </label>
+                      <select
+                        value={webhookType}
+                        onChange={(e) => setWebhookType(e.target.value as "discord" | "slack")}
+                        className="w-full bg-[#080808] border border-border text-text-primary px-2 py-1.5 text-xs focus:border-accent focus:outline-none transition-all font-mono rounded-none"
+                      >
+                        <option value="discord">Discord</option>
+                        <option value="slack">Slack</option>
+                      </select>
+                    </div>
+                    
+                    <div className="col-span-2">
+                      <label className="block text-[8px] uppercase tracking-wider text-text-muted font-semibold mb-1">
+                        Webhook Target URL
+                      </label>
+                      <input
+                        type="url"
+                        placeholder="https://discord.com/api/webhooks/..."
+                        value={webhookUrl}
+                        onChange={(e) => setWebhookUrl(e.target.value)}
+                        className="w-full bg-[#080808] border border-border text-text-primary px-2 py-1.5 text-xs focus:border-accent focus:outline-none transition-all font-mono rounded-none"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full bg-surface border border-border hover:border-accent text-text-primary hover:text-accent font-bold uppercase tracking-wider py-1.5 px-3 flex items-center justify-center gap-1.5 transition-all text-[10px] cursor-pointer"
+                  >
+                    <span>Save Webhook Configuration</span>
+                  </button>
+                </form>
+
+                {/* B. GitHub Sync Workspace Form */}
+                <form onSubmit={handleGitHubSync} className="bg-surface border border-border p-4 space-y-4">
+                  <span className="block text-[9px] uppercase tracking-wider text-text-muted font-bold border-b border-border/40 pb-2 flex items-center gap-1.5 select-none">
+                    <Github className="h-3.5 w-3.5 text-accent" />
+                    <span>GitHub Workspace Synchronization</span>
+                  </span>
+
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[8px] uppercase tracking-wider text-text-muted font-semibold mb-1">
+                          Repository Slug
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="owner/repository"
+                          value={githubRepo}
+                          onChange={(e) => setGithubRepo(e.target.value)}
+                          required
+                          className="w-full bg-[#080808] border border-border text-text-primary px-2 py-1 text-xs focus:border-accent focus:outline-none transition-all font-mono rounded-none"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-[8px] uppercase tracking-wider text-text-muted font-semibold mb-1">
+                          Target Branch
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="main"
+                          value={githubBranch}
+                          onChange={(e) => setGithubBranch(e.target.value)}
+                          required
+                          className="w-full bg-[#080808] border border-border text-text-primary px-2 py-1 text-xs focus:border-accent focus:outline-none transition-all font-mono rounded-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[8px] uppercase tracking-wider text-text-muted font-semibold mb-1">
+                        Personal Access Token (with repo scope)
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="ghp_************************************"
+                        value={githubToken}
+                        onChange={(e) => setGithubToken(e.target.value)}
+                        required
+                        className="w-full bg-[#080808] border border-border text-text-primary px-2 py-1 text-xs focus:border-accent focus:outline-none transition-all font-mono rounded-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[8px] uppercase tracking-wider text-text-muted font-semibold mb-1">
+                        Commit Description
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Sync project workspace files"
+                        value={githubCommitMessage}
+                        onChange={(e) => setGithubCommitMessage(e.target.value)}
+                        required
+                        className="w-full bg-[#080808] border border-border text-text-primary px-2 py-1 text-xs focus:border-accent focus:outline-none transition-all font-mono rounded-none"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isSyncing || !githubToken || !githubRepo || !githubCommitMessage}
+                    className="w-full bg-accent text-bg hover:bg-accent2 font-bold uppercase tracking-wider py-2 px-3 flex items-center justify-center gap-1.5 transition-all text-[10px] cursor-pointer disabled:opacity-50"
+                  >
+                    {isSyncing ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                        <span>Transmitting to GitHub...</span>
+                      </>
+                    ) : (
+                      <>
+                        <GitBranch className="h-3.5 w-3.5 mr-1" />
+                        <span>Push Workspace to GitHub</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+
+              </div>
+            )}
+
           </>
         )}
       </div>
+
+      {diffSession && (
+        <MonacoDiff
+          original={files.find(f => f.filepath === diffSession.filepath)?.content || ""}
+          modified={diffSession.content_snapshot}
+          filepath={diffSession.filepath}
+          onClose={() => setDiffSession(null)}
+          onConfirmRevert={() => {
+            handleRevertClick(diffSession);
+            setDiffSession(null);
+          }}
+          username={diffSession.profile?.username || "Developer"}
+          timestamp={diffSession.created_at}
+        />
+      )}
 
     </div>
   );

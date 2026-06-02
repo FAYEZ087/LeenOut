@@ -114,29 +114,7 @@ function isValidEmail(email: string): boolean {
   return emailRegex.test(email);
 }
 
-// Local JWT sub extraction helper without verification dependencies for rapid keying
-function getUserIdFromReq(req: express.Request): string | null {
-  if ((req as any).user?.id) {
-    return (req as any).user.id;
-  }
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
-    try {
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        const payloadJson = Buffer.from(parts[1], 'base64').toString('utf8');
-        const payload = JSON.parse(payloadJson);
-        if (payload && typeof payload.sub === 'string' && uuidRegex.test(payload.sub)) {
-          return payload.sub;
-        }
-      }
-    } catch (e) {
-      // Ignore token decoding anomalies for rate limiter fallbacks
-    }
-  }
-  return null;
-}
+// Authentication-backed rate limiting key resolver (fully secure)
 
 // Middleware to validate id UUID in request params
 const validateProjectId = (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -156,6 +134,9 @@ const validateProjectId = (req: express.Request, res: express.Response, next: ex
 // 5. Custom, memory-efficient sliding-window rate limiter (supporting IP + user-based keys)
 const globalLimiterMap = new Map<string, number[]>();
 const strictLimiterMap = new Map<string, number[]>();
+
+// In-memory registry for project webhook URLs (discord/slack notification integration)
+const projectWebhooks = new Map<string, { url: string; type: 'discord' | 'slack' }>();
 
 function checkSlidingWindowLimit(
   map: Map<string, number[]>,
@@ -199,7 +180,7 @@ const globalRateLimiter = (req: express.Request, res: express.Response, next: ex
     return next();
   }
 
-  const userId = getUserIdFromReq(req);
+  const userId = (req as any).user?.id;
   const limiterKey = userId ? `user:${userId}` : `ip:${ip}`;
   const globalLimit = 100;
   const globalWindow = 15 * 60 * 1000;
@@ -228,7 +209,7 @@ const globalRateLimiter = (req: express.Request, res: express.Response, next: ex
 // Strict rate limiter middleware (5 requests per 1 minute)
 const strictRateLimiter = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const ip = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress || 'unknown';
-  const userId = getUserIdFromReq(req);
+  const userId = (req as any).user?.id;
   const limiterKey = userId ? `user:${userId}` : `ip:${ip}`;
   const strictLimit = 5;
   const strictWindow = 60 * 1000;
@@ -347,10 +328,13 @@ function validateBody(schema: ValidationSchema) {
 
 // Whitelisted API validation schemas
 const notifyRequestSchema: ValidationSchema = {
+  projectId: { type: 'string', required: false, maxLength: 100 },
   projectOwnerEmail: { type: 'string', required: false, maxLength: 255, pattern: emailRegex },
   projectName: { type: 'string', required: true, minLength: 1, maxLength: 100 },
   requesterUsername: { type: 'string', required: true, minLength: 1, maxLength: 100 },
-  message: { type: 'string', required: false, maxLength: 1000 }
+  message: { type: 'string', required: false, maxLength: 1000 },
+  webhookUrl: { type: 'string', required: false, maxLength: 1000 },
+  webhookType: { type: 'string', required: false, maxLength: 20 }
 };
 
 const emptyBodySchema: ValidationSchema = {};
@@ -429,8 +413,8 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
       }
     }
 
-    // Dynamic Prototype Fallback: signature-agnostic JWT decoding to prevent local development blockages
-    if (!user) {
+    // Dynamic Prototype Fallback: signature-agnostic JWT decoding ONLY if mock auth is explicitly allowed for local testing
+    if (!user && (process.env.ALLOW_MOCK_AUTH === 'true' || (process.env.NODE_ENV !== 'production' && (supabaseUrl.includes('placeholder') || supabaseUrl.includes('localhost'))))) {
       try {
         const parts = token.split('.');
         if (parts.length === 3) {
@@ -479,9 +463,9 @@ app.get('/health', (req, res) => {
 });
 
 // 2. Access Request Mock Notification Endpoint (with strict rate limit, input validation/sanitization)
-app.post('/api/notify-request', strictRateLimiter, validateBody(notifyRequestSchema), (req, res) => {
+app.post('/api/notify-request', strictRateLimiter, validateBody(notifyRequestSchema), async (req, res) => {
   try {
-    const { projectOwnerEmail, projectName, requesterUsername, message } = req.body;
+    const { projectId, projectOwnerEmail, projectName, requesterUsername, message, webhookUrl, webhookType = 'discord' } = req.body;
 
     console.log(`--------------------------------------------------`);
     console.log(`[ALERT] Email notification triggered!`);
@@ -490,6 +474,55 @@ app.post('/api/notify-request', strictRateLimiter, validateBody(notifyRequestSch
     console.log(`Message: "${requesterUsername} has requested access to collaborate on your project!"`);
     console.log(`Requester Pitch: "${message || 'No pitch provided.'}"`);
     console.log(`--------------------------------------------------`);
+
+    let targetWebhookUrl = webhookUrl;
+    let targetWebhookType = webhookType;
+
+    if (projectId && projectWebhooks.has(projectId)) {
+      const config = projectWebhooks.get(projectId);
+      if (config) {
+        targetWebhookUrl = config.url;
+        targetWebhookType = config.type;
+      }
+    }
+
+    // Secure Webhook Alert Dispatcher
+    if (targetWebhookUrl && targetWebhookUrl.startsWith('http')) {
+      try {
+        let payload: any = {};
+        if (targetWebhookType === 'discord') {
+          payload = {
+            username: "Leenout Alerts",
+            avatar_url: "https://leen-out.vercel.app/Logo.png",
+            content: "🏠 **New Collaboration Pitch Recieved!**",
+            embeds: [{
+              title: `Project: ${projectName}`,
+              description: `**${requesterUsername}** wants to collaborate!`,
+              color: 13358647,
+              fields: [
+                { name: "Requester Pitch", value: message || "No pitch provided.", inline: false }
+              ],
+              footer: { text: "Leenout Studio Alerts System" },
+              timestamp: new Date().toISOString()
+            }]
+          };
+        } else {
+          // Slack payload
+          payload = {
+            text: `🏠 *New Collaboration Pitch for ${projectName}!*\n*Developer:* ${requesterUsername}\n*Pitch:* ${message || "No pitch provided."}`
+          };
+        }
+
+        await fetch(targetWebhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        console.log(`[WEBHOOK SUCCESS] Fired alert successfully to ${targetWebhookUrl}`);
+      } catch (webhookErr: any) {
+        console.error(`[WEBHOOK ERROR] Failed to dispatch webhook alert:`, webhookErr.message);
+      }
+    }
 
     logSecurityEvent({
       type: 'SUCCESS',
@@ -505,6 +538,43 @@ app.post('/api/notify-request', strictRateLimiter, validateBody(notifyRequestSch
   } catch (err: any) {
     console.error("[SERVER ERROR] Notification dispatch failed:", err);
     return res.status(500).json({ error: "Failed to dispatch collaboration notifications. Please try again later." });
+  }
+});
+
+// 2.5 Webhook Registration Endpoint (Authenticated, rates limited, validates project ID)
+app.post('/api/projects/:id/webhook-config', authenticateUser, strictRateLimiter, validateProjectId, async (req, res) => {
+  const { id } = req.params;
+  const { webhookUrl, webhookType } = req.body;
+  const callerUserId = (req as any).user.id;
+
+  try {
+    // Verify caller owns project to prevent IDOR configuration hijack
+    const { data: project, error: projErr } = await supabaseAdmin
+      .from('projects')
+      .select('owner_id')
+      .eq('id', id)
+      .single();
+
+    if (projErr || !project) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    if (project.owner_id !== callerUserId) {
+      return res.status(403).json({ error: 'Only the project owner can configure webhook settings.' });
+    }
+
+    if (webhookUrl) {
+      projectWebhooks.set(id, { url: webhookUrl, type: webhookType || 'discord' });
+      console.log(`[WEBHOOK REGISTER] Configured webhook for project ${id}`);
+    } else {
+      projectWebhooks.delete(id);
+      console.log(`[WEBHOOK REMOVE] Webhook cleared for project ${id}`);
+    }
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("[SERVER ERROR] Webhook registration exception:", err);
+    return res.status(500).json({ error: 'Internal server error during webhook registration.' });
   }
 });
 
@@ -739,6 +809,142 @@ app.post('/api/projects/:id/fork', authenticateUser, strictRateLimiter, validate
   }
 });
 
+// 5. GitHub Workspace Synchronization REST API Endpoint (Authenticated, rates limited, whitelisted body validation)
+app.post('/api/projects/:id/github-sync', authenticateUser, strictRateLimiter, validateProjectId, async (req, res) => {
+  const { id } = req.params;
+  const { githubToken, repoName, commitMessage, branch = 'main' } = req.body;
+  const callerUserId = (req as any).user.id;
+
+  if (!githubToken || !repoName || !commitMessage) {
+    return res.status(400).json({ error: 'Missing required sync parameters: githubToken, repoName, and commitMessage are required.' });
+  }
+
+  try {
+    // 1. Verify caller owns project
+    const { data: project, error: projErr } = await supabaseAdmin
+      .from('projects')
+      .select('owner_id, name')
+      .eq('id', id)
+      .single();
+
+    if (projErr || !project) {
+      logSecurityEvent({
+        type: 'VALIDATION_FAILURE',
+        userId: callerUserId,
+        details: `GitHub sync check: project ${id} not found.`
+      });
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    if (project.owner_id !== callerUserId) {
+      logSecurityEvent({
+        type: 'AUTHORIZATION_FAILURE',
+        userId: callerUserId,
+        details: `Unauthorized attempt to sync project ${id} to GitHub by non-owner ${callerUserId}`
+      });
+      return res.status(403).json({ error: 'Only the project owner can push files to GitHub.' });
+    }
+
+    // 2. Fetch project files
+    const { data: files, error: filesErr } = await supabaseAdmin
+      .from('project_files')
+      .select('*')
+      .eq('project_id', id);
+
+    if (filesErr || !files || files.length === 0) {
+      return res.status(400).json({ error: 'No project files found to synchronize.' });
+    }
+
+    console.log(`[GITHUB SYNC] Synchronizing ${files.length} files for project ${project.name} to repo ${repoName}`);
+
+    // Parse owner/repo from repoName (e.g. "FAYEZ087/LeenOut")
+    const repoParts = repoName.split('/');
+    if (repoParts.length !== 2) {
+      return res.status(400).json({ error: 'Invalid repository name format. Expected "owner/repository".' });
+    }
+    const [repoOwner, repoNameSlug] = repoParts;
+
+    const syncErrors: string[] = [];
+    const syncedFiles: string[] = [];
+
+    // 3. Sync each file sequentially to avoid concurrency conflicts
+    for (const file of files) {
+      const filepath = file.filepath;
+      const fileContentBase64 = Buffer.from(file.content).toString('base64');
+      
+      try {
+        // Step A: Check if the file already exists to get its SHA
+        let sha: string | undefined;
+        try {
+          const checkRes = await fetch(`https://api.github.com/repos/${repoOwner}/${repoNameSlug}/contents/${filepath}?ref=${branch}`, {
+            headers: {
+              'Authorization': `Bearer ${githubToken}`,
+              'Accept': 'application/vnd.github.v3+json',
+              'User-Agent': 'Leenout-Studio-Sync'
+            }
+          });
+          
+          if (checkRes.ok) {
+            const checkData = await checkRes.json() as any;
+            sha = checkData.sha;
+          }
+        } catch (e) {
+          // File probably does not exist yet, proceed without SHA
+        }
+
+        // Step B: Upsert contents to GitHub repository
+        const putBody = JSON.stringify({
+          message: `${commitMessage} (Sync: ${filepath})`,
+          content: fileContentBase64,
+          sha,
+          branch
+        });
+
+        const putRes = await fetch(`https://api.github.com/repos/${repoOwner}/${repoNameSlug}/contents/${filepath}`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${githubToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json',
+            'User-Agent': 'Leenout-Studio-Sync'
+          },
+          body: putBody
+        });
+
+        if (!putRes.ok) {
+          const putError = await putRes.json() as any;
+          throw new Error(putError.message || `HTTP ${putRes.status}`);
+        }
+
+        syncedFiles.push(filepath);
+      } catch (err: any) {
+        console.error(`[GITHUB SYNC ERROR] Failed for file ${filepath}:`, err.message);
+        syncErrors.push(`${filepath}: ${err.message}`);
+      }
+    }
+
+    if (syncErrors.length > 0 && syncedFiles.length === 0) {
+      return res.status(500).json({ error: 'GitHub synchronization failed completely.', details: syncErrors });
+    }
+
+    logSecurityEvent({
+      type: 'SUCCESS',
+      userId: callerUserId,
+      details: `GitHub sync complete for project ${id} to repo ${repoName} (${syncedFiles.length} files synced)`
+    });
+
+    return res.json({
+      success: true,
+      syncedFiles,
+      errors: syncErrors.length > 0 ? syncErrors : undefined
+    });
+
+  } catch (err: any) {
+    console.error("[SERVER ERROR] GitHub synchronization exception:", err);
+    return res.status(500).json({ error: 'Internal server error during GitHub synchronization.' });
+  }
+});
+
 // In-memory message history buffer (up to 30 messages per project room)
 const roomHistories = new Map<string, Array<{
   id: string;
@@ -794,8 +1000,8 @@ io.use(async (socket, next) => {
       }
     }
 
-    // 3. Dynamic Prototype Fallback: signature-agnostic JWT decoding to prevent local blockages
-    if (!user) {
+    // 3. Dynamic Prototype Fallback: signature-agnostic JWT decoding ONLY if mock auth is explicitly allowed for local testing
+    if (!user && (process.env.ALLOW_MOCK_AUTH === 'true' || (process.env.NODE_ENV !== 'production' && (supabaseUrl.includes('placeholder') || supabaseUrl.includes('localhost'))))) {
       try {
         const parts = token.split('.');
         if (parts.length === 3) {
@@ -909,18 +1115,31 @@ io.on('connection', (socket) => {
           // ignore
         }
 
-        // Fallback for real database query failure or placeholder key in local testing:
-        // Do not fail closed for local test connections if they are public projects!
+        // Fallback for database query failure or placeholder keys in local testing:
+        // Strictly block this in production environments or if mock auth is not enabled
         if (!project) {
-          console.log(`[SOCKET DB FALLBACK] Resolving fallback mock project for UUID ${projectId}`);
-          project = {
-            id: projectId,
-            name: 'Local Sandbox Studio',
-            owner_id: (clientRole === 'owner') ? userId : 'fallback-owner-id',
-            is_public: true
-          };
-          isOwner = (clientRole === 'owner');
-          isActiveContributor = (clientRole === 'contributor');
+          const isMockEnabled = process.env.ALLOW_MOCK_AUTH === 'true' || 
+            (process.env.NODE_ENV !== 'production' && (supabaseUrl.includes('placeholder') || supabaseUrl.includes('localhost') || isMockProject));
+          
+          if (isMockEnabled) {
+            console.warn(`[SOCKET DB FALLBACK WARNING] Resolving fallback mock project for UUID ${projectId} under development mode.`);
+            project = {
+              id: projectId,
+              name: 'Local Sandbox Studio',
+              owner_id: (clientRole === 'owner') ? userId : 'fallback-owner-id',
+              is_public: true
+            };
+            isOwner = (clientRole === 'owner');
+            isActiveContributor = (clientRole === 'contributor');
+          } else {
+            logSecurityEvent({
+              type: 'AUTHORIZATION_FAILURE',
+              userId,
+              details: `Socket room join rejected: project ${projectId} not found and mock auth fallback is disabled.`
+            });
+            socket.emit('error_message', 'Project not found.');
+            return;
+          }
         }
       }
 

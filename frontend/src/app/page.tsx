@@ -155,6 +155,7 @@ export default function DiscoveryFeedPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          projectId: requestingProject.id,
           projectOwnerEmail: "owner@leenout.dev", // mock routing
           projectName: requestingProject.name,
           requesterUsername: user ? (user.user_metadata?.user_name || user.email) : "stranger_coder",

@@ -1,7 +1,7 @@
 -- Leenout Database Schema - RLS Helpers for Project Files
 
 -- 1. Helper Functions
-create or replace function public.is_owner(project_id uuid)
+create or replace function public.is_owner(_project_id uuid)
 returns boolean
 language sql
 stable
@@ -9,12 +9,12 @@ as $$
   select exists (
     select 1
     from public.projects
-    where projects.id = project_id
+    where projects.id = _project_id
       and projects.owner_id = auth.uid()
   );
 $$;
 
-create or replace function public.has_active_window(project_id uuid)
+create or replace function public.has_active_window(_project_id uuid)
 returns boolean
 language sql
 stable
@@ -26,7 +26,7 @@ as $$
       on contributors.project_id = edit_windows.project_id
      and contributors.user_id = edit_windows.contributor_id
      and contributors.status = 'active'
-    where edit_windows.project_id = project_id
+    where edit_windows.project_id = _project_id
       and edit_windows.contributor_id = auth.uid()
       and edit_windows.status in ('active', 'scheduled')
       and now() between edit_windows.start_time and edit_windows.end_time
@@ -54,6 +54,9 @@ $$;
 drop policy if exists "Files writable by owner or active contributors" on public.project_files;
 drop policy if exists "Files editable by owner or active contributors" on public.project_files;
 drop policy if exists "Files deletable by owner or active contributors" on public.project_files;
+drop policy if exists "Files insertable by owner or active contributors with allowed files" on public.project_files;
+drop policy if exists "Files updatable by owner or active contributors with allowed files" on public.project_files;
+drop policy if exists "Files deletable by owner only" on public.project_files;
 
 create policy "Files insertable by owner or active contributors with allowed files"
   on public.project_files for insert
