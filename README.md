@@ -57,7 +57,6 @@ leenout/
 │   └── package.json
 ├── supabase/                # Database schema + RLS policies
 │   └── migrations/
-└── PRD & TRD/               # Product Requirements Documents (Git ignored)
 ```
 
 ---
