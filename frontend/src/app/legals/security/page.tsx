@@ -37,7 +37,7 @@ export default function SecurityPolicyPage() {
             Security <span className="text-accent">Policy</span>
           </h1>
           <p className="text-xs text-text-muted">
-            Last updated: May 25, 2026 &bull; Secure Protocol Audit v1.0
+            Last updated: August 15, 2026 &bull; Secure Protocol Audit v2.0
           </p>
         </div>
 
@@ -86,7 +86,13 @@ export default function SecurityPolicyPage() {
                 <strong>Service Role Isolation (Strict):</strong> The Supabase service role key (which bypasses RLS checks) is kept <strong>strictly inside the Express backend</strong> node environment. It is never exposed or shipped to the frontend Next.js bundles.
               </li>
               <li>
-                <strong>SSL Gating:</strong> All network exchanges are encrypted end-to-end via secure HTTPS and WebSockets. Unencrypted protocol handshakes are dropped.
+                <strong>Pre-Commit Secret & Vulnerability Scanner:</strong> Code saved in Monaco editor is automatically scanned client-side for hardcoded secrets (Stripe keys, AWS tokens, private keys) before committing to prevent credential leaks.
+              </li>
+              <li>
+                <strong>Selective File Masking ("Zero-Trust"):</strong> Project owners can flag sensitive files as masked. Non-owner contributors can edit and preview frontend components while secret backend source files remain completely hidden.
+              </li>
+              <li>
+                <strong>SSL Gating & API Rate Limiting:</strong> All network exchanges are encrypted end-to-end via secure HTTPS and WebSockets with Express rate limiting protecting endpoints.
               </li>
             </ul>
           </section>

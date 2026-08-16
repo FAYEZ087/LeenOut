@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Terminal, Cpu, Check, Copy, AlertTriangle, Key } from "lucide-react";
+import { ArrowLeft, Terminal, Cpu, Check, Copy, AlertTriangle, Key, Zap } from "lucide-react";
 
 export default function DeveloperApiPage() {
   const router = useRouter();
@@ -46,6 +46,9 @@ export default function DeveloperApiPage() {
           </h1>
           <p className="text-xs text-text-muted">
             Integrate Leenout's real-time developer roster metrics and active scheduled workspace alerts directly.
+          </p>
+          <p className="text-xs text-text-muted mt-2">
+            Last updated: August 15, 2026 &bull; Developer API Specification v2.0
           </p>
         </div>
 
@@ -186,8 +189,26 @@ export default function DeveloperApiPage() {
             <ul className="list-inside list-square pl-4 space-y-2 text-xs text-text-muted">
               <li><strong>Room format:</strong> <code>project:{"{projectId}"}</code></li>
               <li><strong>Broadcasting Saves:</strong> Emitting <code>file_saved</code> synchronizes workspace file caches.</li>
-              <li><strong>Typing history:</strong> Socket caches the last 30 chat events dynamically in transient memory.</li>
+              <li><strong>Studio Cast Streaming:</strong> Emitting <code>toggle_studio_cast</code> broadcasts spectator stream status.</li>
+              <li><strong>Shared Console Errors:</strong> Emitting <code>share_console_error</code> highlights preview errors across clients.</li>
             </ul>
+          </section>
+
+          {/* New REST Endpoints */}
+          <section className="space-y-4 pt-4 border-t border-border/40">
+            <h2 className="font-syne text-lg font-bold text-accent uppercase tracking-wider select-none flex items-center gap-2">
+              <Zap className="h-4 w-4 text-accent" />
+              <span>GitHub PR & Release Notes REST API</span>
+            </h2>
+            <p className="text-xs text-text-muted leading-relaxed">
+              Export draft contributor branches directly to GitHub Pull Requests or generate automated session release notes:
+            </p>
+            <div className="bg-surface border border-border p-4 overflow-x-auto text-[11px] font-mono leading-relaxed max-w-full">
+              <span className="text-[9px] uppercase tracking-wider text-text-muted block mb-2 select-none">// POST /api/projects/:id/github-pr</span>
+              <pre className="text-accent">{`curl -X POST ${backendUrl}/api/projects/proj-123/github-pr \\
+  -H "Content-Type: application/json" \\
+  -d '{"branchName":"session/dev-12","prTitle":"Feature: Dark Mode Navbar"}'`}</pre>
+            </div>
           </section>
 
           {/* Authentication Protocol */}

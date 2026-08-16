@@ -74,6 +74,10 @@ export default function RootLayoutClient({
               <Link href="/create" className="text-text-primary hover:text-accent transition-colors font-medium">
                 Create Project
               </Link>
+              <Link href="/challenges" className="text-text-primary hover:text-accent transition-colors font-medium flex items-center gap-1">
+                <span>Challenges</span>
+                <span className="text-[9px] px-1 py-0.2 bg-amber-500/20 text-amber-400 font-extrabold uppercase rounded">New</span>
+              </Link>
               <Link href="/dashboard" className="text-text-primary hover:text-accent transition-colors font-medium">
                 Dashboard
               </Link>

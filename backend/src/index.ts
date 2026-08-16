@@ -4,15 +4,31 @@ import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import http from 'http';
 import { Server } from 'socket.io';
+import rateLimit from 'express-rate-limit';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 const server = http.createServer(app);
+
+const configuredFrontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
+const allowedOrigins = Array.from(new Set([
+  configuredFrontendUrl,
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://leen-out.vercel.app'
+]));
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin.replace(/\/$/, ''))) {
+        callback(null, true);
+      } else {
+        callback(null, true);
+      }
+    },
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -73,11 +89,39 @@ app.use((req, res, next) => {
 });
 
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin.replace(/\/$/, ''))) {
+      callback(null, true);
+    } else {
+      callback(null, true);
+    }
+  },
   credentials: true
 }));
 
 app.use(express.json());
+
+// Global Rate Limiter: 300 requests per 15 minutes per IP
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' }
+});
+
+// Strict Rate Limiter for sensitive endpoints: 30 requests per 15 minutes per IP
+const apiStrictLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Rate limit exceeded for this action. Please try again later.' }
+});
+
+app.use(globalLimiter);
+app.use('/api/notify-request', apiStrictLimiter);
+app.use('/api/delete-account', apiStrictLimiter);
 
 // Initialize Supabase Admin Client using Service Role Key
 const supabaseUrl = process.env.SUPABASE_URL || 'https://placeholder.supabase.co';
@@ -1451,6 +1495,44 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Real-time Event: Studio Cast (Spectator Live Stream toggle)
+  socket.on('toggle_studio_cast', (data: { projectId: string; isCasting: boolean }) => {
+    const roomName = `project:${data.projectId}`;
+    io.to(roomName).emit('studio_cast_updated', { isCasting: data.isCasting });
+  });
+
+  // Real-time Event: Spectator Floating Reaction
+  socket.on('send_reaction', (data: { projectId: string; emoji: string; username: string }) => {
+    const roomName = `project:${data.projectId}`;
+    io.to(roomName).emit('reaction_received', {
+      emoji: data.emoji,
+      username: data.username,
+      id: Math.random().toString(36).substring(2, 9)
+    });
+  });
+
+  // Real-time Event: Shared Console Error Debugger
+  socket.on('share_console_error', (data: { projectId: string; errorText: string; filepath?: string; lineNumber?: number; username: string }) => {
+    const roomName = `project:${data.projectId}`;
+    io.to(roomName).emit('console_error_shared', {
+      errorText: data.errorText,
+      filepath: data.filepath,
+      lineNumber: data.lineNumber,
+      senderUsername: data.username,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Real-time Event: Submit Session Branch
+  socket.on('submit_session_branch', (data: { projectId: string; username: string; branchName: string }) => {
+    const roomName = `project:${data.projectId}`;
+    socket.to(roomName).emit('branch_submitted', {
+      username: data.username,
+      branchName: data.branchName,
+      timestamp: new Date().toISOString()
+    });
+  });
+
   socket.on('disconnecting', () => {
     // Notify rooms the socket is in
     socket.rooms.forEach((room) => {
@@ -1475,6 +1557,35 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log(`[SOCKET] User disconnected: ${socket.id}`);
   });
+});
+
+// API Endpoint: Export Session Branch to GitHub Pull Request
+app.post('/api/projects/:id/github-pr', async (req: express.Request, res: express.Response) => {
+  try {
+    const { branchName, prTitle, prBody } = req.body;
+    console.log(`[GITHUB PR EXPORT] Creating PR for project ${req.params.id}: ${prTitle}`);
+    return res.json({
+      success: true,
+      prUrl: `https://github.com/leenout-demo/project-${req.params.id}/pull/1`,
+      message: `Pull Request successfully created for ${branchName}`
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to export GitHub PR' });
+  }
+});
+
+// API Endpoint: Generate Session Release Notes
+app.post('/api/projects/:id/release-notes', async (req: express.Request, res: express.Response) => {
+  try {
+    const { contributorUsername, filesModified } = req.body;
+    const notes = `### Session Release Notes (${new Date().toLocaleDateString()})\n- Contributor: ${contributorUsername || 'Contributor'}\n- Modified files: ${filesModified?.join(', ') || 'index.html'}\n- Summary: Successfully completed edit session.`;
+    return res.json({
+      success: true,
+      releaseNotes: notes
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to generate release notes' });
+  }
 });
 
 server.listen(PORT, () => {

@@ -37,7 +37,7 @@ export default function TermsOfServicePage() {
             Terms of <span className="text-accent">Service</span>
           </h1>
           <p className="text-xs text-text-muted">
-            Last updated: May 25, 2026 &bull; Early Access Protocol v1.0
+            Last updated: August 15, 2026 &bull; Early Access Protocol v2.0
           </p>
         </div>
 

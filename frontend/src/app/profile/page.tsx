@@ -7,6 +7,7 @@ import {
   User, Mail, Code, Calendar, AlertTriangle, Trash2, Save, LogOut, Loader2, ArrowLeft, Plus, X, Upload, FolderOpen
 } from "lucide-react";
 import Link from "next/link";
+import ContributionHeatmap from "./contribution-heatmap";
 
 interface Profile {
   username: string;
@@ -526,6 +527,9 @@ export default function ProfilePage() {
                 )}
               </button>
             </form>
+
+            {/* Developer Contribution Heatmap Analytics */}
+            <ContributionHeatmap />
 
             {/* Danger Zone */}
             <div className="glass-panel p-8 border border-accent2/30 bg-accent2/5 space-y-6">

@@ -1,19 +1,24 @@
 "use client";
 
-import React, { useState, useEffect, use } from "react";
+import React, { useState, useEffect, useCallback, use } from "react";
 import { supabase } from "@/utils/supabaseClient";
 import { useRouter } from "next/navigation";
 import { 
   Loader2, Play, ShieldAlert, ArrowLeft, Save, Sparkles, Terminal, FileCode, CheckCircle2, Folder as FolderIcon, Settings, Maximize2, Minimize2, GitFork 
 } from "lucide-react";
 import Link from "next/link";
-import { io } from "socket.io-client";
 
 // Sub-components imports
 import FileTree, { ProjectFile } from "./file-tree";
 import MonacoWrap from "./monaco-wrap";
 import PreviewPane from "./preview-pane";
 import AdminPanel from "./admin-panel";
+import { useProjectSocket } from "@/hooks/useProjectSocket";
+import SessionBranchesModal, { SessionBranch } from "./session-branches-modal";
+import BountiesModal, { Bounty } from "./bounties-modal";
+import SpectatorBar from "./spectator-bar";
+import { scanCodeForSecrets } from "@/utils/secretScanner";
+import { soundFX } from "@/utils/soundEffects";
 
 // Mock Fallbacks in case Supabase project fails or for quick local preview
 const DEFAULT_FILES: ProjectFile[] = [
@@ -331,7 +336,6 @@ export default function StudioPage({ params }: PageProps) {
   };
 
   // Real-time Chat & File Sync States
-  const [socket, setSocket] = useState<any>(null);
   const [activeRightTab, setActiveRightTab] = useState<"preview" | "chat">("preview");
   const [chatMessages, setChatMessages] = useState<Array<{
     id: string;
@@ -347,6 +351,13 @@ export default function StudioPage({ params }: PageProps) {
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [profileUsername, setProfileUsername] = useState("");
   const [profileAvatarUrl, setProfileAvatarUrl] = useState("");
+
+  // New Features States
+  const [isCasting, setIsCasting] = useState(false);
+  const [isBranchesOpen, setIsBranchesOpen] = useState(false);
+  const [isBountiesOpen, setIsBountiesOpen] = useState(false);
+  const [sessionBranches, setSessionBranches] = useState<SessionBranch[]>([]);
+  const [bounties, setBounties] = useState<Bounty[]>([]);
 
   // 1. Establish secure auth session state listener and profile resolver
   useEffect(() => {
@@ -578,103 +589,50 @@ export default function StudioPage({ params }: PageProps) {
     return () => clearInterval(interval);
   }, [secondsLeft]);
 
-  // Establish Socket.io real-time connection
-  useEffect(() => {
-    if (!project || !user) return;
-
-    let socketClient: any = null;
-
-    const connectSocket = async () => {
-      // Connect to the Socket.io server
-      const socketUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      
-      socketClient = io(socketUrl, {
-        auth: { token },
-        withCredentials: true,
-        transports: ["websocket", "polling"]
+  // Establish Socket.io real-time connection via custom hook
+  const socket = useProjectSocket({
+    project,
+    user,
+    hasActiveWindow,
+    profileUsername,
+    profileAvatarUrl,
+    onRoomHistory: (history) => setChatMessages(history),
+    onReceiveMessage: (msg) => {
+      setChatMessages(prev => (prev.some(m => m.id === msg.id) ? prev : [...prev, msg]));
+      setActiveRightTab(currentTab => {
+        if (currentTab !== "chat") {
+          setUnreadMessages(u => u + 1);
+        }
+        return currentTab;
       });
+    },
+    onFileUpdated: (data) => {
+      setActionMessage(`Realtime: ${data.senderUsername} saved ${data.filepath}`);
+      setTimeout(() => setActionMessage(null), 4000);
 
-      setSocket(socketClient);
+      setFiles(prev => prev.map(f => 
+        f.filepath === data.filepath ? { ...f, content: data.content } : f
+      ));
 
-      // Determine user role for chat display
-      const userRole = project.owner_id === user.id 
-        ? "owner" 
-        : allowedFiles !== null || secondsLeft !== null 
-          ? "contributor" 
-          : "guest";
-
-      const joinRoom = () => {
-        socketClient.emit("join_project_room", {
-          projectId: project.id,
-          userId: user.id,
-          username: profileUsername || user.email?.split("@")[0] || "Developer",
-          avatarUrl: profileAvatarUrl || "",
-          role: userRole
-        });
-      };
-
-      socketClient.on("connect", () => {
-        console.log("[SOCKET CLIENT] Connected to realtime server. Joining room:", project.id);
-        joinRoom();
+      setActiveFile(currentFile => {
+        if (currentFile && currentFile.filepath === data.filepath) {
+          setLocalContent(data.content);
+          setUnsavedChanges(false);
+          return { ...currentFile, content: data.content };
+        }
+        return currentFile;
       });
-
-      if (socketClient.connected) {
-        joinRoom();
-      }
-
-      socketClient.on("room_history", (history: any[]) => {
-        setChatMessages(history);
-      });
-
-      socketClient.on("receive_message", (msg: any) => {
-        setChatMessages(prev => {
-          // Prevent duplicate messages
-          if (prev.some(m => m.id === msg.id)) return prev;
-          return [...prev, msg];
-        });
-
-        // Increment unread badge if viewing preview tab
-        setActiveRightTab(currentTab => {
-          if (currentTab !== "chat") {
-            setUnreadMessages(u => u + 1);
-          }
-          return currentTab;
-        });
-      });
-
-      // Handle real-time file update broadcasts
-      socketClient.on("file_updated", (data: { filepath: string; content: string; senderUsername: string }) => {
-        // 1. Show notification toast
-        setActionMessage(`Realtime: ${data.senderUsername} saved ${data.filepath}`);
-        setTimeout(() => setActionMessage(null), 4000);
-
-        // 2. Update local state files
-        setFiles(prev => prev.map(f => 
-          f.filepath === data.filepath ? { ...f, content: data.content } : f
-        ));
-
-        // 3. If the open/active file is the one that updated, update its local editor value
-        setActiveFile(currentFile => {
-          if (currentFile && currentFile.filepath === data.filepath) {
-            setLocalContent(data.content);
-            setUnsavedChanges(false);
-            return { ...currentFile, content: data.content };
-          }
-          return currentFile;
-        });
-      });
-    };
-
-    connectSocket();
-
-    return () => {
-      if (socketClient) {
-        socketClient.disconnect();
-      }
-    };
-  }, [project, user, allowedFiles, secondsLeft, profileUsername, profileAvatarUrl]);
+    },
+    onStudioCastUpdated: (data) => setIsCasting(data.isCasting),
+    onConsoleErrorShared: (data) => {
+      setActionMessage(`[Debug Alert] ${data.senderUsername} shared error: ${data.errorText}`);
+      setTimeout(() => setActionMessage(null), 6000);
+    },
+    onBranchSubmitted: (data) => {
+      setActionMessage(`Branch Submitted by ${data.username}: ${data.branchName}`);
+      setTimeout(() => setActionMessage(null), 5000);
+    }
+  });
 
   // Auto-scroll chat viewport to bottom on new transmissions
   useEffect(() => {
@@ -692,7 +650,7 @@ export default function StudioPage({ params }: PageProps) {
 
     const userRole = project.owner_id === user.id 
       ? "owner" 
-      : allowedFiles !== null || secondsLeft !== null 
+      : hasActiveWindow 
         ? "contributor" 
         : "guest";
 
@@ -730,8 +688,16 @@ export default function StudioPage({ params }: PageProps) {
   };
 
   // Triggered by Ctrl + S or Save button clicks
-  const handleSaveActiveFile = async () => {
-    if (!activeFile || !isEditable) return;
+  const handleSaveActiveFile = useCallback(async () => {
+    if (!activeFile || !unsavedChanges) return;
+
+    // Security Check: Pre-Commit Secret Scanner
+    const scan = scanCodeForSecrets(localContent);
+    if (scan.hasSecret) {
+      soundFX.playWarning();
+      alert(`[SECURITY BLOCKED] Pre-commit scanner detected potential ${scan.type} (${scan.matchedText}). Please remove hardcoded credentials before saving.`);
+      return;
+    }
 
     setSaving(true);
     setActionMessage(null);
@@ -778,6 +744,7 @@ export default function StudioPage({ params }: PageProps) {
       setActiveFile(prev => prev ? { ...prev, content: localContent } : null);
       setUnsavedChanges(false);
 
+      soundFX.playCommit();
       setActionMessage("Changes committed successfully!");
       setTimeout(() => setActionMessage(null), 3000);
 
@@ -797,7 +764,7 @@ export default function StudioPage({ params }: PageProps) {
     } finally {
       setSaving(false);
     }
-  };
+  }, [activeFile, unsavedChanges, localContent, project, user, profileUsername, socket]);
 
   // Global Ctrl + S / Cmd + S Hotkey listener to intercept browser save prompts and trigger commits
   useEffect(() => {
@@ -1312,6 +1279,26 @@ console.log("[STUDIO] ${filepath} script loaded successfully!");
             </span>
           )}
 
+          {user && project && (
+            <>
+              <button
+                onClick={() => setIsBountiesOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 transition-all cursor-pointer rounded"
+              >
+                <span>Bounties</span>
+              </button>
+
+              {project.owner_id === user.id && (
+                <button
+                  onClick={() => setIsBranchesOpen(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold bg-purple-500/10 border border-purple-500/30 text-purple-400 hover:bg-purple-500/20 transition-all cursor-pointer rounded"
+                >
+                  <span>Draft Branches</span>
+                </button>
+              )}
+            </>
+          )}
+
           {user && project && project.owner_id !== user.id && (
             <button
               onClick={handleForkProject}
@@ -1347,6 +1334,21 @@ console.log("[STUDIO] ${filepath} script loaded successfully!");
           )}
         </div>
       </div>
+
+      {/* Spectator Live Stream Banner */}
+      {project && user && (
+        <SpectatorBar
+          isOwner={project.owner_id === user.id}
+          isCasting={isCasting}
+          onToggleCast={(casting) => {
+            setIsCasting(casting);
+            socket?.emit("toggle_studio_cast", { projectId, isCasting: casting });
+          }}
+          onSendReaction={(emoji) => {
+            socket?.emit("send_reaction", { projectId, emoji, username: profileUsername || "Coder" });
+          }}
+        />
+      )}
 
       {/* Main Three Pane Workspace Grid */}
       <div className="flex-1 flex flex-col md:flex-row items-stretch overflow-y-auto md:overflow-hidden min-h-0 relative">
@@ -1685,7 +1687,7 @@ console.log("[STUDIO] ${filepath} script loaded successfully!");
                         type="button"
                         onClick={() => {
                           if (!socket || !project || !user) return;
-                          const userRole = project.owner_id === user.id ? "owner" : (allowedFiles !== null || secondsLeft !== null ? "contributor" : "guest");
+                          const userRole = project.owner_id === user.id ? "owner" : (hasActiveWindow ? "contributor" : "guest");
                           socket.emit("send_message", {
                             projectId: project.id,
                             userId: user.id,
@@ -1783,6 +1785,67 @@ console.log("[STUDIO] ${filepath} script loaded successfully!");
           </div>
         </div>
       )}
+
+      {/* Session Draft Branches Modal */}
+      <SessionBranchesModal
+        isOpen={isBranchesOpen}
+        onClose={() => setIsBranchesOpen(false)}
+        branches={sessionBranches}
+        onMergeBranch={async (branch) => {
+          try {
+            // Apply merged files to project state
+            setFiles(prev => {
+              const updated = [...prev];
+              branch.files_json.forEach(f => {
+                const existingIdx = updated.findIndex(item => item.filepath === f.filepath);
+                if (existingIdx >= 0) {
+                  updated[existingIdx] = { ...updated[existingIdx], content: f.content };
+                } else {
+                  updated.push({
+                    id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+                    filename: f.filepath.split("/").pop() || f.filepath,
+                    filepath: f.filepath,
+                    content: f.content
+                  });
+                }
+              });
+              return updated;
+            });
+            setActionMessage(`Branch ${branch.branch_name} successfully merged!`);
+          } catch (e: any) {
+            alert(`Merge failed: ${e.message}`);
+          }
+        }}
+        onRejectBranch={async (branchId) => {
+          setSessionBranches(prev => prev.filter(b => b.id !== branchId));
+          setActionMessage("Branch rejected.");
+        }}
+      />
+
+      {/* Micro-Bounties Modal */}
+      <BountiesModal
+        isOpen={isBountiesOpen}
+        onClose={() => setIsBountiesOpen(false)}
+        bounties={bounties}
+        isOwner={!!(user && project && project.owner_id === user.id)}
+        onCreateBounty={async (title, filepath, reward) => {
+          const newBounty: Bounty = {
+            id: `bounty-${Date.now()}`,
+            project_id: projectId,
+            title,
+            filepath,
+            reward_amount: reward,
+            status: "open",
+            created_at: new Date().toISOString()
+          };
+          setBounties(prev => [newBounty, ...prev]);
+          setActionMessage(`Bounty created: ${title}`);
+        }}
+        onClaimBounty={async (bountyId) => {
+          setBounties(prev => prev.map(b => b.id === bountyId ? { ...b, status: "claimed" } : b));
+          setActionMessage("Bounty claimed! Work in progress...");
+        }}
+      />
 
     </div>
   );

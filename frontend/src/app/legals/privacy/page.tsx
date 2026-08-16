@@ -37,7 +37,7 @@ export default function PrivacyPolicyPage() {
             Privacy <span className="text-accent">Policy</span>
           </h1>
           <p className="text-xs text-text-muted">
-            Last updated: May 25, 2026 &bull; Data Protection Protocol v1.0
+            Last updated: August 15, 2026 &bull; Data Protection Protocol v2.0
           </p>
         </div>
 

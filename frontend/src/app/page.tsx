@@ -151,20 +151,24 @@ export default function DiscoveryFeedPage() {
       }
 
       // 2. Alert Express Backend API for Email Mocking notification!
-      const notifyResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/notify-request`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectId: requestingProject.id,
-          projectOwnerEmail: "owner@leenout.dev", // mock routing
-          projectName: requestingProject.name,
-          requesterUsername: user ? (user.user_metadata?.user_name || user.email) : "stranger_coder",
-          message: pitchMessage
-        })
-      });
+      try {
+        const notifyResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/notify-request`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId: requestingProject.id,
+            projectOwnerEmail: "owner@leenout.dev", // mock routing
+            projectName: requestingProject.name,
+            requesterUsername: user ? (user.user_metadata?.user_name || user.email) : "stranger_coder",
+            message: pitchMessage
+          })
+        });
 
-      if (!notifyResponse.ok) {
-        console.warn("Backend notification failed to register.");
+        if (!notifyResponse.ok) {
+          console.warn("Backend notification failed to register.");
+        }
+      } catch (notifyErr) {
+        console.warn("Backend notification endpoint unreachable:", notifyErr);
       }
 
       setRequestStatus({

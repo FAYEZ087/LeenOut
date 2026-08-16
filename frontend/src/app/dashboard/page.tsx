@@ -90,6 +90,10 @@ export default function DashboardHubPage() {
       }
     });
 
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
     // 2. Fetch live requests and owned projects if authenticated
     const loadRequests = async () => {
       try {
@@ -227,10 +231,12 @@ export default function DashboardHubPage() {
 
     if (user) {
       loadRequests();
+    } else {
+      setMyProjects([]);
+      setRequests([]);
+      setCollabProjects([]);
+      setWatchedProjects([]);
     }
-
-
-    return () => subscription.unsubscribe();
   }, [user]);
 
   const handleResolveRequest = async (requestId: string, status: "approved" | "denied") => {
